@@ -33,6 +33,7 @@ import com.alibaba.csp.sentinel.property.DynamicSentinelProperty;
 import com.alibaba.csp.sentinel.property.PropertyListener;
 import com.alibaba.csp.sentinel.property.SentinelProperty;
 import com.alibaba.csp.sentinel.slots.block.RuleConstant;
+import com.alibaba.csp.sentinel.slots.block.flow.ClusterFlowConfig;
 import com.alibaba.csp.sentinel.slots.block.flow.FlowRule;
 import com.alibaba.csp.sentinel.slots.block.flow.FlowRuleUtil;
 import com.alibaba.csp.sentinel.util.AssertUtil;
@@ -103,6 +104,7 @@ public final class ClusterFlowRuleManager {
     }
 
     public static void setPropertySupplier(Function<String, SentinelProperty<List<FlowRule>>> propertySupplier) {
+        AssertUtil.notNull(propertySupplier, "flow rule property supplier cannot be null");
         ClusterFlowRuleManager.propertySupplier = propertySupplier;
     }
 
@@ -127,7 +129,7 @@ public final class ClusterFlowRuleManager {
         }
         synchronized (UPDATE_LOCK) {
             RecordLog.info("[ClusterFlowRuleManager] Registering new property to cluster flow rule manager"
-                + " for namespace <{0}>", namespace);
+                + " for namespace <{}>", namespace);
             registerPropertyInternal(namespace, property);
         }
     }
@@ -178,7 +180,7 @@ public final class ClusterFlowRuleManager {
                 PROPERTY_MAP.remove(namespace);
             }
             RecordLog.info("[ClusterFlowRuleManager] Removing property from cluster flow rule manager"
-                + " for namespace <{0}>", namespace);
+                + " for namespace <{}>", namespace);
         }
     }
 
@@ -206,6 +208,17 @@ public final class ClusterFlowRuleManager {
             return null;
         }
         return FLOW_RULES.get(id);
+    }
+
+    public static Set<Long> getFlowIdSet(String namespace) {
+        if (StringUtil.isEmpty(namespace)) {
+            return new HashSet<>();
+        }
+        Set<Long> set = NAMESPACE_FLOW_ID_MAP.get(namespace);
+        if (set == null) {
+            return new HashSet<>();
+        }
+        return new HashSet<>(set);
     }
 
     public static List<FlowRule> getAllFlowRules() {
@@ -303,6 +316,10 @@ public final class ClusterFlowRuleManager {
         return ConnectionManager.getConnectedCount(namespace);
     }
 
+    public static String getNamespace(long flowId) {
+        return FLOW_NAMESPACE_MAP.get(flowId);
+    }
+
     private static void applyClusterFlowRule(List<FlowRule> list, /*@Valid*/ String namespace) {
         if (list == null || list.isEmpty()) {
             clearAndResetRulesFor(namespace);
@@ -326,7 +343,8 @@ public final class ClusterFlowRuleManager {
             }
 
             // Flow id should not be null after filtered.
-            Long flowId = rule.getClusterConfig().getFlowId();
+            ClusterFlowConfig clusterConfig = rule.getClusterConfig();
+            Long flowId = clusterConfig.getFlowId();
             if (flowId == null) {
                 continue;
             }
@@ -336,8 +354,7 @@ public final class ClusterFlowRuleManager {
 
             // Prepare cluster metric from valid flow ID.
             ClusterMetricStatistics.putMetricIfAbsent(flowId,
-                new ClusterMetric(ClusterServerConfigManager.getSampleCount(),
-                    ClusterServerConfigManager.getIntervalMs()));
+                new ClusterMetric(clusterConfig.getSampleCount(), clusterConfig.getWindowIntervalMs()));
         }
 
         // Cleanup unused cluster metrics.
@@ -363,14 +380,14 @@ public final class ClusterFlowRuleManager {
         @Override
         public synchronized void configUpdate(List<FlowRule> conf) {
             applyClusterFlowRule(conf, namespace);
-            RecordLog.info("[ClusterFlowRuleManager] Cluster flow rules received for namespace <{0}>: {1}",
+            RecordLog.info("[ClusterFlowRuleManager] Cluster flow rules received for namespace <{}>: {}",
                 namespace, FLOW_RULES);
         }
 
         @Override
         public synchronized void configLoad(List<FlowRule> conf) {
             applyClusterFlowRule(conf, namespace);
-            RecordLog.info("[ClusterFlowRuleManager] Cluster flow rules loaded for namespace <{0}>: {1}",
+            RecordLog.info("[ClusterFlowRuleManager] Cluster flow rules loaded for namespace <{}>: {}",
                 namespace, FLOW_RULES);
         }
     }
